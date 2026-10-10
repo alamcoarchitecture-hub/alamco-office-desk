@@ -1,6 +1,5 @@
 # Alamco Studio Office Desk
 
-ഓഫീസ് (studio) ജോലികൾ ഏൽപ്പിക്കാനും പരിശോധിക്കാനും ഉള്ള ചെറിയ വെബ് ആപ്പ്.
 A small mobile-friendly web app for the studio's internal work assignment. Node.js + Express, plain HTML/JS, JSON-file storage by default, optional PostgreSQL (`DATABASE_URL`).
 
 Jobs ("briefs") arrive from the existing `alamco-webhook` / alamcostudio.com via `POST /api/ingest`.

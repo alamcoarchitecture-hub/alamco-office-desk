@@ -1,37 +1,37 @@
 // Studio pipeline, status mapping, permissions and job actions. Pure logic (no HTTP, no I/O).
 const STAGES = [
-  { key: 'new', ml: 'പുതിയത് (പണം കാത്തിരിക്കുന്നു)', en: 'New / awaiting payment' },
-  { key: 'work_started', ml: 'ജോലി തുടങ്ങി', en: 'Work started' },
-  { key: 'survey_verified', ml: 'സർവേ പരിശോധിച്ചു', en: 'Survey verified' },
-  { key: 'drafting', ml: 'ഡ്രാഫ്റ്റിംഗ് ഏൽപ്പിച്ചു', en: 'Drafting assigned' },
-  { key: 'draft_ready', ml: 'ഡ്രാഫ്റ്റ് റെഡി', en: 'Draft ready' },
-  { key: 'senior_verified', ml: 'സീനിയർ പരിശോധിച്ചു', en: 'Senior verified' },
-  { key: 'sent_to_client', ml: 'ക്ലയന്റിന് അയച്ചു', en: 'Sent to client' },
-  { key: 'approved', ml: 'അംഗീകരിച്ചു', en: 'Approved' },
+  { key: 'new', en: 'New / awaiting payment' },
+  { key: 'work_started', en: 'Work started' },
+  { key: 'survey_verified', en: 'Survey verified' },
+  { key: 'drafting', en: 'Drafting assigned' },
+  { key: 'draft_ready', en: 'Draft ready' },
+  { key: 'senior_verified', en: 'Senior verified' },
+  { key: 'sent_to_client', en: 'Sent to client' },
+  { key: 'approved', en: 'Approved' },
 ];
 const RANK = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
-const stageLabel = (k) => { const s = STAGES.find((x) => x.key === k); return s ? `${s.ml} / ${s.en}` : k; };
+const stageLabel = (k) => { const s = STAGES.find((x) => x.key === k); return s ? `${s.en}` : k; };
 
 const ROLES = ['owner', 'senior_architect', 'drafter', 'surveyor'];
 const ROLE_LABELS = {
-  owner: { ml: 'ഉടമ', en: 'Owner' },
-  senior_architect: { ml: 'സീനിയർ ആർക്കിടെക്ട്', en: 'Senior Architect' },
-  drafter: { ml: 'ഡ്രാഫ്റ്റ്സ്മാൻ', en: 'Drafter' },
-  surveyor: { ml: 'സർവേയർ', en: 'Surveyor' },
+  owner: { en: 'Owner' },
+  senior_architect: { en: 'Senior Architect' },
+  drafter: { en: 'Drafter' },
+  surveyor: { en: 'Surveyor' },
 };
 
 // roles: who may do it. own: roles restricted to jobs assigned to them. stages: allowed current stages.
 const ACTIONS = {
-  assign_drafter: { ml: 'ഡ്രാഫ്റ്റർക്ക് ഏൽപ്പിക്കുക', en: 'Assign drafter', roles: ['owner', 'senior_architect'], stages: ['survey_verified', 'drafting'] },
-  assign_surveyor: { ml: 'സർവേയറെ ഏൽപ്പിക്കുക', en: 'Assign surveyor', roles: ['owner', 'senior_architect'], stages: ['new', 'work_started', 'survey_verified'] },
-  survey_verified: { ml: 'സർവേ പരിശോധിച്ചു', en: 'Mark survey verified', roles: ['owner', 'senior_architect', 'surveyor'], own: ['surveyor'], stages: ['work_started'] },
-  draft_ready: { ml: 'ഡ്രാഫ്റ്റ് റെഡി', en: 'Mark draft ready', roles: ['owner', 'drafter'], own: ['drafter'], stages: ['drafting'] },
-  senior_verify: { ml: 'സീനിയർ പരിശോധന', en: 'Senior architect verify', roles: ['owner', 'senior_architect'], stages: ['draft_ready'] },
-  request_changes: { ml: 'മാറ്റങ്ങൾ ആവശ്യപ്പെടുക', en: 'Request changes', roles: ['owner', 'senior_architect'], stages: ['draft_ready'] },
-  send_to_client: { ml: 'ക്ലയന്റിന് അയച്ചു', en: 'Mark sent to client', roles: ['owner', 'senior_architect'], stages: ['senior_verified'] },
-  approve: { ml: 'ക്ലയന്റ് അംഗീകരിച്ചു', en: 'Approve', roles: ['owner'], stages: ['sent_to_client'] },
-  note: { ml: 'കുറിപ്പ് ചേർക്കുക', en: 'Add note', roles: ['owner', 'senior_architect', 'drafter', 'surveyor'], own: ['drafter', 'surveyor'], stages: null },
-  set_stage: { ml: 'സ്റ്റേജ് മാറ്റുക (ഉടമ)', en: 'Override stage (owner)', roles: ['owner'], stages: null },
+  assign_drafter: { en: 'Assign drafter', roles: ['owner', 'senior_architect'], stages: ['survey_verified', 'drafting'] },
+  assign_surveyor: { en: 'Assign surveyor', roles: ['owner', 'senior_architect'], stages: ['new', 'work_started', 'survey_verified'] },
+  survey_verified: { en: 'Mark survey verified', roles: ['owner', 'senior_architect', 'surveyor'], own: ['surveyor'], stages: ['work_started'] },
+  draft_ready: { en: 'Mark draft ready', roles: ['owner', 'drafter'], own: ['drafter'], stages: ['drafting'] },
+  senior_verify: { en: 'Senior architect verify', roles: ['owner', 'senior_architect'], stages: ['draft_ready'] },
+  request_changes: { en: 'Request changes', roles: ['owner', 'senior_architect'], stages: ['draft_ready'] },
+  send_to_client: { en: 'Mark sent to client', roles: ['owner', 'senior_architect'], stages: ['senior_verified'] },
+  approve: { en: 'Approve', roles: ['owner'], stages: ['sent_to_client'] },
+  note: { en: 'Add note', roles: ['owner', 'senior_architect', 'drafter', 'surveyor'], own: ['drafter', 'surveyor'], stages: null },
+  set_stage: { en: 'Override stage (owner)', roles: ['owner'], stages: null },
 };
 
 function isOwnJob(actor, job) {
@@ -41,9 +41,9 @@ function isOwnJob(actor, job) {
 function can(actor, action, job) {
   const a = ACTIONS[action];
   if (!a) return { ok: false, reason: 'unknown action' };
-  if (!a.roles.includes(actor.role)) return { ok: false, reason: 'ഈ പ്രവൃത്തിക്ക് അനുമതിയില്ല / not permitted for your role' };
-  if (a.own && a.own.includes(actor.role) && !isOwnJob(actor, job)) return { ok: false, reason: 'നിങ്ങൾക്ക് ഏൽപ്പിച്ച ജോലി മാത്രം / only on jobs assigned to you' };
-  if (a.stages && !a.stages.includes(job.stage)) return { ok: false, reason: `ഈ സ്റ്റേജിൽ സാധ്യമല്ല / not allowed at stage "${job.stage}"` };
+  if (!a.roles.includes(actor.role)) return { ok: false, reason: 'not permitted for your role' };
+  if (a.own && a.own.includes(actor.role) && !isOwnJob(actor, job)) return { ok: false, reason: 'only on jobs assigned to you' };
+  if (a.stages && !a.stages.includes(job.stage)) return { ok: false, reason: `not allowed at stage "${job.stage}"` };
   return { ok: true };
 }
 const allowedActions = (actor, job) => Object.keys(ACTIONS).filter((k) => can(actor, k, job).ok);

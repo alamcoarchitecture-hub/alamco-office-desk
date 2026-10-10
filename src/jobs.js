@@ -65,7 +65,7 @@ function act(store, actor, job, body) {
   const text = String(body.text || body.note || '').trim().slice(0, 1000);
   const msgs = [];
   const A = P.ACTIONS[action];
-  const ownerMsg = (extra) => msgs.push({ to: 'owner', tag: action, text: `🗂 Office Desk — ${A.ml} / ${A.en}\n${title(job)}\nBy: ${actor.name}${extra ? '\n' + extra : ''}\nStage: ${P.stageLabel(job.stage)}${link(job)}` });
+  const ownerMsg = (extra) => msgs.push({ to: 'owner', tag: action, text: `🗂 Office Desk — ${A.en}\n${title(job)}\nBy: ${actor.name}${extra ? '\n' + extra : ''}\nStage: ${P.stageLabel(job.stage)}${link(job)}` });
 
   switch (action) {
     case 'assign_drafter':
@@ -79,7 +79,7 @@ function act(store, actor, job, body) {
       if (isD && job.stage === 'survey_verified') setStage(job, actor, 'drafting', action, `Assigned to ${s.name}`);
       else log(job, actor, action, `Assigned to ${s.name}${prev && prev.id !== s.id ? ` (was ${prev.name})` : ''}`);
       if (text) log(job, actor, 'note', text);
-      msgs.push({ to: s, tag: action, text: `🎯 പുതിയ ജോലി / New ${isD ? 'drafting' : 'survey'} assignment\n${title(job)}${job.plot ? '\nPlot: ' + job.plot : ''}${job.area_band ? '\nArea: ' + job.area_band : ''}\nAssigned by: ${actor.name}${text ? '\nNote: ' + text : ''}${link(job)}` });
+      msgs.push({ to: s, tag: action, text: `🎯 New ${isD ? 'drafting' : 'survey'} assignment\n${title(job)}${job.plot ? '\nPlot: ' + job.plot : ''}${job.area_band ? '\nArea: ' + job.area_band : ''}\nAssigned by: ${actor.name}${text ? '\nNote: ' + text : ''}${link(job)}` });
       ownerMsg(`Assignee: ${s.name}`);
       break;
     }
@@ -89,11 +89,11 @@ function act(store, actor, job, body) {
       break;
     case 'draft_ready': {
       const url = String(body.file_url || '').trim();
-      if (!validUrl(url)) return { error: 'ഫയൽ ലിങ്ക് (http/https) വേണം / a valid file link (http/https) is required', status: 400 };
+      if (!validUrl(url)) return { error: 'a valid file link (http/https) is required', status: 400 };
       job.draft_files.push({ url: url.slice(0, 500), label: String(body.label || '').trim().slice(0, 80), by: who(actor).name, at: now() });
       setStage(job, actor, 'draft_ready', action, `Draft: ${url.slice(0, 200)}${text ? ' | ' + text : ''}`);
       ownerMsg(`File: ${url.slice(0, 200)}`);
-      store.staff.filter((s) => s.role === 'senior_architect').forEach((s) => msgs.push({ to: s, tag: action, text: `📐 ഡ്രാഫ്റ്റ് പരിശോധനയ്ക്ക് / Draft ready for your verification\n${title(job)}\nDrafter: ${actor.name}\nFile: ${url.slice(0, 200)}${link(job)}` }));
+      store.staff.filter((s) => s.role === 'senior_architect').forEach((s) => msgs.push({ to: s, tag: action, text: `📐 Draft ready for your verification\n${title(job)}\nDrafter: ${actor.name}\nFile: ${url.slice(0, 200)}${link(job)}` }));
       break;
     }
     case 'senior_verify':
@@ -101,11 +101,11 @@ function act(store, actor, job, body) {
       ownerMsg();
       break;
     case 'request_changes': {
-      if (!text) return { error: 'മാറ്റങ്ങൾ എഴുതുക / describe the changes needed', status: 400 };
+      if (!text) return { error: 'describe the changes needed', status: 400 };
       setStage(job, actor, 'drafting', action, text);
       ownerMsg(`Changes: ${text}`);
       const d = store.staffById(job.drafter_id);
-      if (d) msgs.push({ to: d, tag: action, text: `✏️ മാറ്റങ്ങൾ വേണം / Changes requested\n${title(job)}\nBy: ${actor.name}\n${text}${link(job)}` });
+      if (d) msgs.push({ to: d, tag: action, text: `✏️ Changes requested\n${title(job)}\nBy: ${actor.name}\n${text}${link(job)}` });
       break;
     }
     case 'send_to_client':
@@ -117,14 +117,14 @@ function act(store, actor, job, body) {
       ownerMsg();
       break;
     case 'note':
-      if (!text) return { error: 'കുറിപ്പ് ശൂന്യമാണ് / note is empty', status: 400 };
+      if (!text) return { error: 'note is empty', status: 400 };
       log(job, actor, 'note', text);
       if (actor.role !== 'owner') ownerMsg(`Note: ${text}`);
       break;
     case 'set_stage': {
       const to = String(body.stage || '');
       if (!(to in P.RANK)) return { error: 'unknown stage', status: 400 };
-      if (!text) return { error: 'കാരണം എഴുതുക / reason required', status: 400 };
+      if (!text) return { error: 'reason required', status: 400 };
       setStage(job, actor, to, action, text);
       ownerMsg(`Reason: ${text}`);
       break;
@@ -158,16 +158,16 @@ function pendingFor(store, actor) {
   for (const job of store.jobs.values()) {
     if (job.stage === 'approved') continue;
     const mine = (r) => actor.role === 'owner' || actor.role === r;
-    if (job.stage === 'new' && mine('owner')) add(job, 'Awaiting payment confirmation / പണം കാത്തിരിക്കുന്നു');
+    if (job.stage === 'new' && mine('owner')) add(job, 'Awaiting payment confirmation');
     if (job.stage === 'work_started') {
-      if (!job.surveyor_id && (actor.role === 'owner' || actor.role === 'senior_architect')) add(job, 'Assign surveyor / സർവേയറെ ഏൽപ്പിക്കുക');
-      if (job.surveyor_id && (actor.role === 'owner' || (actor.role === 'surveyor' && job.surveyor_id === actor.id))) add(job, 'Survey to be verified / സർവേ പരിശോധിക്കണം');
+      if (!job.surveyor_id && (actor.role === 'owner' || actor.role === 'senior_architect')) add(job, 'Assign surveyor');
+      if (job.surveyor_id && (actor.role === 'owner' || (actor.role === 'surveyor' && job.surveyor_id === actor.id))) add(job, 'Survey to be verified');
     }
-    if (job.stage === 'survey_verified' && (actor.role === 'owner' || actor.role === 'senior_architect')) add(job, 'Assign drafter / ഡ്രാഫ്റ്റർക്ക് ഏൽപ്പിക്കുക');
-    if (job.stage === 'drafting' && (actor.role === 'owner' || (actor.role === 'drafter' && job.drafter_id === actor.id))) add(job, 'Drafting in progress / ഡ്രാഫ്റ്റിംഗ് നടക്കുന്നു');
-    if (job.stage === 'draft_ready' && (actor.role === 'owner' || actor.role === 'senior_architect')) add(job, 'Senior verification pending / സീനിയർ പരിശോധന');
-    if (job.stage === 'senior_verified' && (actor.role === 'owner' || actor.role === 'senior_architect')) add(job, 'Send to client / ക്ലയന്റിന് അയക്കുക');
-    if (job.stage === 'sent_to_client' && actor.role === 'owner') add(job, 'Awaiting client approval / ക്ലയന്റ് അംഗീകാരം കാത്തിരിക്കുന്നു');
+    if (job.stage === 'survey_verified' && (actor.role === 'owner' || actor.role === 'senior_architect')) add(job, 'Assign drafter');
+    if (job.stage === 'drafting' && (actor.role === 'owner' || (actor.role === 'drafter' && job.drafter_id === actor.id))) add(job, 'Drafting in progress');
+    if (job.stage === 'draft_ready' && (actor.role === 'owner' || actor.role === 'senior_architect')) add(job, 'Senior verification pending');
+    if (job.stage === 'senior_verified' && (actor.role === 'owner' || actor.role === 'senior_architect')) add(job, 'Send to client');
+    if (job.stage === 'sent_to_client' && actor.role === 'owner') add(job, 'Awaiting client approval');
   }
   return out.sort((a, b) => b.idle_days - a.idle_days);
 }
@@ -177,7 +177,7 @@ function summary(store, actor) {
   for (const j of store.jobs.values()) byStage[j.stage]++;
   const pending = pendingFor(store, actor);
   const lines = [`📋 Alamco Studio Office Desk — ${new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}`];
-  lines.push(`${pending.length} pending / ബാക്കിയുള്ളവ`);
+  lines.push(`${pending.length} pending`);
   pending.slice(0, 25).forEach((p) => lines.push(`• ${p.job_id}${p.client ? ' (' + p.client + ')' : ''}: ${p.what}${p.idle_days ? ` [${p.idle_days}d]` : ''}`));
   if (pending.length > 25) lines.push(`… +${pending.length - 25} more`);
   return { date: now(), counts_by_stage: byStage, pending_count: pending.length, pending, text: lines.join('\n') };

@@ -32,7 +32,7 @@ function createApp(opts = {}) {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'same-origin',
-      'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
     });
     if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
     next();
@@ -57,8 +57,8 @@ function createApp(opts = {}) {
     req.user = s ? store.staffById(s.sid) : null;
     next();
   });
-  const need = (req, res, next) => (req.user ? next() : res.status(401).json({ ok: false, error: 'ലോഗിൻ ചെയ്യുക / login required' }));
-  const needOwner = (req, res, next) => (req.user && req.user.role === 'owner' ? next() : res.status(req.user ? 403 : 401).json({ ok: false, error: 'ഉടമയ്ക്ക് മാത്രം / owner only' }));
+  const need = (req, res, next) => (req.user ? next() : res.status(401).json({ ok: false, error: 'login required' }));
+  const needOwner = (req, res, next) => (req.user && req.user.role === 'owner' ? next() : res.status(req.user ? 403 : 401).json({ ok: false, error: 'owner only' }));
   const hasIngestSecret = (req) => {
     const s = process.env.DESK_INGEST_SECRET;
     if (!s) return false;
@@ -77,18 +77,18 @@ function createApp(opts = {}) {
 
   // ---- public ----
   app.get('/health', (_req, res) => res.json({ ok: true, service: 'alamco-office-desk', dryRun: notify.isDryRun() }));
-  app.get('/api/meta', (_req, res) => res.json({ stages: P.STAGES, roles: P.ROLES, role_labels: P.ROLE_LABELS, actions: Object.fromEntries(Object.entries(P.ACTIONS).map(([k, v]) => [k, { ml: v.ml, en: v.en }])) }));
+  app.get('/api/meta', (_req, res) => res.json({ stages: P.STAGES, roles: P.ROLES, role_labels: P.ROLE_LABELS, actions: Object.fromEntries(Object.entries(P.ACTIONS).map(([k, v]) => [k, { en: v.en }])) }));
   app.get('/api/login-options', (_req, res) => res.json({ staff: store.staff.map((s) => ({ id: s.id, name: s.name, role: s.role })) }));
 
   app.post('/api/login', (req, res) => {
     const ip = req.ip || '?';
     const id = String((req.body && req.body.staff_id) || '');
     const pin = String((req.body && req.body.pin) || '');
-    if (loginLimitIp.blocked(ip) || loginLimitUser.blocked(id)) return res.status(429).json({ ok: false, error: 'കുറച്ച് കഴിഞ്ഞ് ശ്രമിക്കുക / too many attempts, try later' });
+    if (loginLimitIp.blocked(ip) || loginLimitUser.blocked(id)) return res.status(429).json({ ok: false, error: 'too many attempts, try later' });
     const s = store.staffById(id);
     let ok = false;
     if (s) ok = s.id === 'owner' ? !!ownerPin && A.safeEqual(pin, ownerPin) : A.verifyPin(pin, s.pin_hash);
-    if (!ok) { loginLimitIp.fail(ip); loginLimitUser.fail(id); return res.status(401).json({ ok: false, error: 'PIN തെറ്റാണ് / wrong PIN' }); }
+    if (!ok) { loginLimitIp.fail(ip); loginLimitUser.fail(id); return res.status(401).json({ ok: false, error: 'wrong PIN' }); }
     loginLimitUser.clear(id);
     const secure = process.env.NODE_ENV === 'production' || req.secure;
     res.append('Set-Cookie', `${COOKIE}=${A.makeSession(sessionSecret, s.id, SESSION_TTL)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL / 1000}${secure ? '; Secure' : ''}`);
@@ -156,10 +156,10 @@ function createApp(opts = {}) {
   });
   const cleanStaff = (b, partial) => {
     const out = {};
-    if (!partial || b.name !== undefined) { const n = String(b.name || '').trim().slice(0, 80); if (!n) return { error: 'പേര് വേണം / name required' }; out.name = n; }
+    if (!partial || b.name !== undefined) { const n = String(b.name || '').trim().slice(0, 80); if (!n) return { error: 'name required' }; out.name = n; }
     if (!partial || b.role !== undefined) { if (!P.ROLES.includes(b.role) || b.role === 'owner') return { error: 'role must be senior_architect, drafter or surveyor' }; out.role = b.role; }
     if (b.telegram_chat_id !== undefined) { const c = String(b.telegram_chat_id || '').trim(); if (c && !/^-?\d{3,20}$/.test(c)) return { error: 'telegram_chat_id must be numeric' }; out.telegram_chat_id = c; }
-    if (b.pin !== undefined && b.pin !== '') { if (!A.validPin(String(b.pin))) return { error: 'PIN 4-8 അക്കങ്ങൾ / PIN must be 4-8 digits' }; out.pin_hash = A.hashPin(String(b.pin)); }
+    if (b.pin !== undefined && b.pin !== '') { if (!A.validPin(String(b.pin))) return { error: 'PIN must be 4-8 digits' }; out.pin_hash = A.hashPin(String(b.pin)); }
     return { out };
   };
   app.post('/api/staff', needOwner, (req, res) => {

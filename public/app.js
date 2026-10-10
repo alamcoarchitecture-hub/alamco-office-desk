@@ -1,6 +1,13 @@
 'use strict';
 const $ = (s) => document.querySelector(s);
 const view = $('#view');
+// Replace the page content; children rise in with a small stagger (CSSOM only, CSP-safe).
+function render(...kids) {
+  const list = kids.flat().filter((k) => k !== null && k !== undefined && k !== false);
+  list.forEach((k, i) => { k.classList.add('rise'); k.style.setProperty('animation-delay', (i * 60) + 'ms'); });
+  view.replaceChildren(...list);
+  window.scrollTo(0, 0);
+}
 let me = null, meta = null;
 
 // Safe DOM builder: text is always set via textContent (no HTML injection from job data).
@@ -26,10 +33,15 @@ async function api(path, method, body) {
   if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
   return d;
 }
-const stageName = (k) => { const s = meta.stages.find((x) => x.key === k); return s ? `${s.ml} / ${s.en}` : k; };
-const roleName = (r) => { const l = meta.role_labels[r]; return l ? `${l.ml} / ${l.en}` : r; };
-const actLabel = (k) => `${meta.actions[k].ml} / ${meta.actions[k].en}`;
+const stageName = (k) => { const s = meta.stages.find((x) => x.key === k); return s ? s.en : k; };
+const roleName = (r) => { const l = meta.role_labels[r]; return l ? l.en : r; };
+const actLabel = (k) => meta.actions[k].en;
 const fmt = (iso) => new Date(iso).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+// Stages that are waiting on someone in the studio (gold accent).
+const AWAITING = new Set(['new', 'draft_ready', 'senior_verified', 'sent_to_client']);
+const stagePill = (k) => h('span', { class: 'pill' + (k === 'approved' ? ' approved' : AWAITING.has(k) ? ' await' : '') }, stageName(k));
+const pageHead = (kicker, title, hint) => h('div', { class: 'page-head' }, h('span', { class: 'kicker' }, kicker), h('h1', {}, title), h('hr', { class: 'rule' }), hint ? h('p', { class: 'hint' }, hint) : null);
+const field = (label, el) => h('div', { class: 'field' }, h('label', { class: 'kicker' }, label), el);
 
 // ---------- login ----------
 async function loginView() {
@@ -41,10 +53,15 @@ async function loginView() {
     try { await api('/api/login', 'POST', { staff_id: sel.value, pin: pin.value }); await boot(); } catch (e) { toast(e.message, true); }
   };
   pin.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-  view.replaceChildren(h('div', { class: 'login' },
-    h('h1', {}, 'Alamco Studio Office Desk'),
-    h('div', { class: 'hint' }, 'നിങ്ങളുടെ പേര് തിരഞ്ഞെടുത്ത് PIN നൽകുക / Choose your name and enter your PIN'),
-    sel, pin, h('button', { class: 'btn', onclick: go }, 'ലോഗിൻ / Login')));
+  render(h('div', { class: 'login' },
+    h('div', { class: 'brand' },
+      h('span', { class: 'wm-name' }, 'ALAMCO'), h('span', { class: 'wm-sub' }, 'Architecture')),
+    h('span', { class: 'kicker' }, 'Office Desk'),
+    h('h1', {}, 'Welcome back to the ', h('em', {}, 'studio desk.')),
+    h('hr', { class: 'rule' }),
+    h('p', { class: 'hint' }, 'Choose your name and enter your PIN.'),
+    field('Name', sel), field('PIN', pin),
+    h('button', { class: 'btn block', onclick: go }, 'Log in')));
 }
 
 // ---------- board ----------
@@ -52,17 +69,17 @@ async function boardView() {
   const { jobs } = await api('/api/jobs');
   const cols = meta.stages.map((s) => {
     const list = jobs.filter((j) => j.stage === s.key);
-    return h('section', { class: 'col' },
-      h('h3', {}, h('span', {}, `${s.ml} / ${s.en}`), h('span', { class: 'n' }, list.length)),
-      list.map((j) => h('a', { class: 'card', href: `#/job/${encodeURIComponent(j.job_id)}` },
+    return h('section', { class: 'col' + (AWAITING.has(s.key) ? ' await' : '') },
+      h('div', { class: 'col-head' }, h('h3', {}, s.en), h('span', { class: 'n' }, list.length)),
+      list.length ? list.map((j) => h('a', { class: 'card', href: `#/job/${encodeURIComponent(j.job_id)}` },
         h('div', { class: 'id' }, j.job_id),
-        h('div', {}, j.client_name || '—'),
+        h('div', { class: 'client' }, j.client_name || '—'),
         h('div', { class: 'meta' }, [j.plot && `Plot: ${j.plot}`, j.area_band && `Area: ${j.area_band}`, j.floors && `Floors: ${j.floors}`].filter(Boolean).join(' · ')),
-        h('div', {}, h('span', { class: 'tag ' + (j.paid ? 'paid' : 'unpaid') }, j.paid ? 'പണം ലഭിച്ചു / Paid' : 'പണം ബാക്കി / Unpaid'),
-          j.assignee && h('span', { class: 'tag' }, '👤 ' + j.assignee)))));
+        h('div', { class: 'row' }, h('span', { class: 'pill ' + (j.paid ? 'paid' : 'unpaid') }, j.paid ? 'Paid' : 'Unpaid'),
+          j.assignee && h('span', { class: 'pill' }, j.assignee)))) : h('p', { class: 'empty' }, 'Nothing here'));
   });
-  view.replaceChildren(h('h1', {}, 'ജോലി ബോർഡ് / Job board'), h('div', { class: 'hint' }, 'കാർഡ് തൊട്ടാൽ വിശദാംശങ്ങളും പ്രവർത്തനങ്ങളും കാണാം / Tap a card for details and actions'),
-    jobs.length ? null : h('p', {}, 'ഇതുവരെ ജോലികളൊന്നും വന്നിട്ടില്ല / No jobs yet'), h('div', { class: 'board' }, cols));
+  render(pageHead('Studio', 'Job board', 'Tap a card for details and actions.'),
+    jobs.length ? null : h('p', { class: 'hint' }, 'No jobs yet.'), h('div', { class: 'board' }, cols));
 }
 
 // ---------- job detail ----------
@@ -73,70 +90,78 @@ const NEED = {
 async function jobView(id) {
   const [{ job }, staffRes] = await Promise.all([api('/api/jobs/' + encodeURIComponent(id)), api('/api/staff')]);
   const staff = staffRes.staff;
-  const kv = (k, v) => [h('div', {}, k), h('div', {}, v || '—')];
+  const kv = (k, v) => [h('div', { class: 'k' }, k), h('div', { class: 'v' }, v || '—')];
   const actionBoxes = job.allowed_actions.map((a) => {
     const inputs = {};
     const fields = (NEED[a] || []).concat(['assign_drafter', 'assign_surveyor', 'draft_ready', 'request_changes', 'note', 'set_stage'].includes(a) ? [] : ['text']);
     const els = fields.map((f) => {
       const [name, req] = [f.replace(/[*]|staff:.*/g, ''), f.endsWith('*')];
-      let el;
+      let el, lab;
       if (f.startsWith('staff:')) {
         const role = f.split(':')[1];
         el = h('select', {}, staff.filter((s) => s.role === role).map((s) => h('option', { value: s.id }, s.name)));
-        inputs.staff_id = el;
+        inputs.staff_id = el; lab = role === 'drafter' ? 'Drafter' : 'Surveyor';
       } else if (name === 'stage') {
-        el = h('select', {}, meta.stages.map((s) => h('option', { value: s.key }, `${s.ml} / ${s.en}`)));
-        inputs.stage = el;
+        el = h('select', {}, meta.stages.map((s) => h('option', { value: s.key }, s.en)));
+        inputs.stage = el; lab = 'Stage';
       } else if (name === 'file_url') {
-        el = h('input', { type: 'url', placeholder: 'ഫയൽ ലിങ്ക് / File link (https://…)' }); inputs.file_url = el;
+        el = h('input', { type: 'url', placeholder: 'File link (https://…)' }); inputs.file_url = el; lab = 'File link';
       } else if (name === 'label') {
-        el = h('input', { placeholder: 'ലേബൽ / Label (optional, e.g. R1 PDF)' }); inputs.label = el;
+        el = h('input', { placeholder: 'Label (optional, e.g. R1 PDF)' }); inputs.label = el; lab = 'Label';
       } else {
-        el = h('textarea', { placeholder: req ? 'എഴുതുക / Write here (required)' : 'കുറിപ്പ് / Note (optional)' }); inputs.text = el;
+        el = h('textarea', { placeholder: req ? 'Write here (required)' : 'Note (optional)' }); inputs.text = el; lab = req ? 'Note (required)' : 'Note';
       }
-      return el;
+      return field(lab, el);
     });
     const btn = h('button', { class: 'btn' + (a === 'request_changes' ? ' sec' : '') }, actLabel(a));
     btn.addEventListener('click', async () => {
       const body = { action: a };
       for (const [k, el] of Object.entries(inputs)) body[k] = el.value;
       btn.disabled = true;
-      try { await api(`/api/jobs/${encodeURIComponent(job.job_id)}/actions`, 'POST', body); toast('ശരി / Done'); await route(); } catch (e) { toast(e.message, true); btn.disabled = false; }
+      try { await api(`/api/jobs/${encodeURIComponent(job.job_id)}/actions`, 'POST', body); toast('Done'); await route(); } catch (e) { toast(e.message, true); btn.disabled = false; }
     });
     return h('div', { class: 'act' }, els, btn);
   });
-  view.replaceChildren(
-    h('p', {}, h('a', { href: '#/board' }, '← ബോർഡ് / Board')),
-    h('h1', {}, `${job.job_id} — ${job.client_name || ''}`),
-    h('div', { class: 'grid2' },
-      h('div', { class: 'panel' }, h('h2', {}, 'വിശദാംശങ്ങൾ / Details'), h('div', { class: 'kv' },
-        kv('Stage / ഘട്ടം', stageName(job.stage)), kv('Client / ക്ലയന്റ്', job.client_name), job.client_phone ? kv('Phone', job.client_phone) : [],
+  const cur = meta.stages.findIndex((s) => s.key === job.stage);
+  const progress = h('ol', { class: 'tl' }, meta.stages.map((s, i) => h('li', { class: i < cur || job.stage === 'approved' ? 'done' : i === cur ? 'now' : 'todo' },
+    h('span', { class: 'dot' }), h('div', { class: 'stage-name' }, s.en))));
+  const hist = job.history.slice().reverse();
+  const timeline = h('ol', { class: 'tl' }, hist.map((e, i) => h('li', { class: i === 0 ? 'now' : 'done' },
+    h('span', { class: 'dot' }),
+    h('div', { class: 't' }, `${fmt(e.at)} · ${e.by.name} (${e.by.role})`),
+    h('div', { class: 'what' }, `${e.action}${e.from ? ` — ${e.from} → ${e.to}` : ''}${e.detail ? ': ' + e.detail : ''}`))));
+  render(
+    h('a', { class: 'back', href: '#/board' }, '← Board'),
+    h('div', { class: 'job-head' }, h('span', { class: 'kicker' }, 'Job'), h('h1', {}, job.job_id), h('div', { class: 'client' }, job.client_name || ''),
+      h('div', { class: 'row' }, stagePill(job.stage), h('span', { class: 'pill ' + (job.paid ? 'paid' : 'unpaid') }, job.paid ? 'Paid' : 'Unpaid')), h('hr', { class: 'rule' })),
+    h('div', { class: 'job-grid' },
+      h('div', { class: 'panel' }, h('h2', {}, 'Details'), h('div', { class: 'kv' },
+        kv('Stage', stageName(job.stage)), kv('Client', job.client_name), job.client_phone ? kv('Phone', job.client_phone) : [],
         kv('Plot', job.plot), kv('Floors', job.floors), kv('Area band', job.area_band),
-        kv('Payment / പണം', job.paid ? `ലഭിച്ചു / Paid${job.payment_amount != null ? ' ₹' + job.payment_amount : ''} (${fmt(job.paid_at)})` : 'ബാക്കി / Not paid'),
+        kv('Payment', job.paid ? `Paid${job.payment_amount != null ? ' ₹' + job.payment_amount : ''} (${fmt(job.paid_at)})` : 'Not paid'),
         kv('Surveyor', job.surveyor && job.surveyor.name), kv('Drafter', job.drafter && job.drafter.name),
-        kv('Drafts / ഡ്രാഫ്റ്റ്', job.draft_files.length ? job.draft_files.map((f) => h('div', {}, h('a', { href: f.url, target: '_blank', rel: 'noopener noreferrer' }, f.label || f.url), ` (${f.by})`)) : ''))),
-      h('div', { class: 'panel' }, h('h2', {}, 'പ്രവർത്തനങ്ങൾ / Actions'),
-        actionBoxes.length ? h('div', { class: 'actions' }, actionBoxes) : h('p', { class: 'hint' }, 'ഈ സ്റ്റേജിൽ നിങ്ങൾക്ക് ചെയ്യാനൊന്നുമില്ല / Nothing for you to do at this stage'))),
-    h('div', { class: 'panel' }, h('h2', {}, 'ചരിത്രം / History'),
-      h('ul', { class: 'hist' }, job.history.slice().reverse().map((e) => h('li', {},
-        h('div', { class: 't' }, `${fmt(e.at)} · ${e.by.name} (${e.by.role})`),
-        h('div', {}, `${e.action}${e.from ? ` — ${e.from} → ${e.to}` : ''}${e.detail ? ': ' + e.detail : ''}`))))));
+        kv('Drafts', job.draft_files.length ? job.draft_files.map((f) => h('div', {}, h('a', { href: f.url, target: '_blank', rel: 'noopener noreferrer' }, f.label || f.url), ` (${f.by})`)) : ''))),
+      h('div', { class: 'panel' }, h('h2', {}, 'Actions'),
+        actionBoxes.length ? h('div', { class: 'actions' }, actionBoxes) : h('p', { class: 'hint' }, 'Nothing for you to do at this stage.'))),
+    h('div', { class: 'panel' }, h('h2', {}, 'Progress'), progress),
+    h('div', { class: 'panel' }, h('h2', {}, 'History'), timeline));
 }
 
 // ---------- my work ----------
 async function myView() {
   const d = await api('/api/my-work');
-  const pend = d.pending.length ? h('table', {}, d.pending.map((p) => h('tr', {}, h('td', {}, h('a', { href: `#/job/${encodeURIComponent(p.job_id)}` }, p.job_id)), h('td', {}, p.client), h('td', {}, p.what), h('td', {}, p.idle_days ? p.idle_days + 'd' : '')))) : h('p', { class: 'hint' }, 'ബാക്കിയൊന്നുമില്ല 🎉 / Nothing pending');
-  view.replaceChildren(h('h1', {}, `എന്റെ ജോലി / My work — ${d.user.name}`), h('div', { class: 'panel' }, h('h2', {}, 'ബാക്കിയുള്ളവ / Pending'), pend),
-    h('div', { class: 'panel' }, h('h2', {}, 'എന്നെ ഏൽപ്പിച്ചവ / Assigned to me'),
-      d.jobs.length ? d.jobs.map((j) => h('a', { class: 'card', href: `#/job/${encodeURIComponent(j.job_id)}` }, h('div', { class: 'id' }, `${j.job_id} — ${j.client_name || ''}`), h('div', { class: 'meta' }, stageName(j.stage)))) : h('p', { class: 'hint' }, 'ഒന്നുമില്ല / None')));
+  const pend = d.pending.length ? h('div', { class: 'todo-list' }, d.pending.map((p) => h('a', { class: 'todo-item', href: `#/job/${encodeURIComponent(p.job_id)}` },
+    h('div', { class: 'card id' }, p.job_id), h('div', {}, p.client || '—'), h('div', { class: 'what' }, p.what), p.idle_days ? h('div', { class: 'idle' }, `Idle ${p.idle_days}d`) : null))) : h('p', { class: 'hint' }, 'Nothing pending. All clear.');
+  render(pageHead('Today', 'My work', d.user.name), h('div', { class: 'panel' }, h('h2', {}, 'Pending'), pend),
+    h('div', { class: 'panel' }, h('h2', {}, 'Assigned to me'),
+      d.jobs.length ? d.jobs.map((j) => h('a', { class: 'card', href: `#/job/${encodeURIComponent(j.job_id)}` }, h('div', { class: 'id' }, `${j.job_id} — ${j.client_name || ''}`), h('div', { class: 'row' }, stagePill(j.stage)))) : h('p', { class: 'hint' }, 'None.')));
 }
 
 // ---------- summary ----------
 async function summaryView() {
   const s = await api('/api/summary');
-  view.replaceChildren(h('h1', {}, 'ഇന്നത്തെ സംഗ്രഹം / Daily summary'), h('pre', { class: 'sum' }, s.text),
-    me.role === 'owner' && h('button', { class: 'btn', onclick: async () => { try { const r = await api('/api/summary/send', 'POST', {}); toast(r.dryRun ? 'Dry-run: അയച്ചില്ല (ലോഗിൽ) / printed, not sent' : 'Telegram-ൽ അയച്ചു / Sent'); } catch (e) { toast(e.message, true); } } }, 'Telegram-ലേക്ക് അയക്കുക / Send to Telegram'));
+  render(pageHead('Overview', 'Daily summary'), h('pre', { class: 'sum' }, s.text),
+    me.role === 'owner' && h('button', { class: 'btn', onclick: async () => { try { const r = await api('/api/summary/send', 'POST', {}); toast(r.dryRun ? 'Dry-run: printed to the log, not sent' : 'Sent to Telegram'); } catch (e) { toast(e.message, true); } } }, 'Send to Telegram'));
 }
 
 // ---------- team (owner) ----------
@@ -146,27 +171,26 @@ async function teamView() {
   const row = (s) => {
     const name = h('input', { value: s.name }), role = h('select', {}, roles.map((r) => h('option', { value: r, selected: r === s.role }, roleName(r)))),
       chat = h('input', { value: s.telegram_chat_id || '', placeholder: 'Telegram chat id', inputmode: 'numeric' }),
-      pin = h('input', { type: 'password', placeholder: s.has_pin ? 'പുതിയ PIN (ഓപ്ഷണൽ) / new PIN' : 'PIN സജ്ജമാക്കുക / set PIN', inputmode: 'numeric', maxlength: '8', autocomplete: 'new-password' });
+      pin = h('input', { type: 'password', placeholder: s.has_pin ? 'New PIN (optional)' : 'Set PIN', inputmode: 'numeric', maxlength: '8', autocomplete: 'new-password' });
     const owner = s.id === 'owner';
     if (owner) { role.disabled = true; pin.disabled = true; pin.placeholder = 'DESK_OWNER_PIN (env)'; }
-    const save = h('button', { class: 'btn', onclick: async () => { try { await api('/api/staff/' + s.id, 'PATCH', { name: name.value, role: owner ? undefined : role.value, telegram_chat_id: chat.value, pin: pin.value }); toast('സേവ് ചെയ്തു / Saved'); await teamView(); } catch (e) { toast(e.message, true); } } }, 'Save');
-    const del = owner ? null : h('button', { class: 'btn danger', onclick: async () => { if (!confirm(`${s.name} നെ നീക്കം ചെയ്യണോ? / Remove?`)) return; try { await api('/api/staff/' + s.id, 'DELETE'); await teamView(); } catch (e) { toast(e.message, true); } } }, 'Remove');
-    return h('div', { class: 'staffrow' }, h('div', {}, h('label', {}, 'Name'), name), h('div', {}, h('label', {}, 'Role'), role), h('div', {}, h('label', {}, 'Telegram chat id'), chat), h('div', {}, h('label', {}, s.has_pin ? 'PIN ✓' : 'PIN ✗'), pin), h('div', {}, save, ' ', del));
+    const save = h('button', { class: 'btn sm', onclick: async () => { try { await api('/api/staff/' + s.id, 'PATCH', { name: name.value, role: owner ? undefined : role.value, telegram_chat_id: chat.value, pin: pin.value }); toast('Saved'); await teamView(); } catch (e) { toast(e.message, true); } } }, 'Save');
+    const del = owner ? null : h('button', { class: 'btn sm danger', onclick: async () => { if (!confirm(`Remove ${s.name}?`)) return; try { await api('/api/staff/' + s.id, 'DELETE'); await teamView(); } catch (e) { toast(e.message, true); } } }, 'Remove');
+    return h('div', { class: 'staffrow' }, field('Name', name), field('Role', role), field('Telegram chat id', chat), field(s.has_pin ? 'PIN set' : 'PIN not set', pin), h('div', { class: 'btns' }, save, del));
   };
-  const n = h('input', { placeholder: 'പേര് / Name' }), r = h('select', {}, roles.map((x) => h('option', { value: x }, roleName(x)))), c = h('input', { placeholder: 'Telegram chat id (optional)', inputmode: 'numeric' }), p = h('input', { type: 'password', placeholder: 'PIN (4-8 digits)', inputmode: 'numeric', maxlength: '8', autocomplete: 'new-password' });
-  view.replaceChildren(h('h1', {}, 'ടീം / Team'),
-    h('div', { class: 'hint' }, 'ഓരോരുത്തർക്കും PIN സജ്ജമാക്കിയാലേ ലോഗിൻ ചെയ്യാൻ കഴിയൂ. Telegram chat id അറിയാൻ അവർ ബോട്ടിന് "Hi" അയക്കണം. / Staff can log in only after you set a PIN. Chat id is optional (needed for Telegram alerts).'),
+  const n = h('input', { placeholder: 'Name' }), r = h('select', {}, roles.map((x) => h('option', { value: x }, roleName(x)))), c = h('input', { placeholder: 'Telegram chat id (optional)', inputmode: 'numeric' }), p = h('input', { type: 'password', placeholder: 'PIN (4-8 digits)', inputmode: 'numeric', maxlength: '8', autocomplete: 'new-password' });
+  render(pageHead('Studio', 'Team', 'Staff can log in only after you set a PIN. The Telegram chat id is optional (needed for Telegram alerts); staff get it by sending "Hi" to the bot.'),
     h('div', { class: 'panel' }, staff.map(row)),
-    h('div', { class: 'panel' }, h('h2', {}, 'പുതിയ അംഗം / Add staff'), h('div', { class: 'staffrow' }, h('div', {}, n), h('div', {}, r), h('div', {}, c), h('div', {}, p),
-      h('div', {}, h('button', { class: 'btn', onclick: async () => { try { await api('/api/staff', 'POST', { name: n.value, role: r.value, telegram_chat_id: c.value, pin: p.value }); toast('ചേർത്തു / Added'); await teamView(); } catch (e) { toast(e.message, true); } } }, 'Add')))));
+    h('div', { class: 'panel' }, h('h2', {}, 'Add staff'), h('div', { class: 'staffrow' }, field('Name', n), field('Role', r), field('Telegram chat id', c), field('PIN', p),
+      h('div', { class: 'btns' }, h('button', { class: 'btn', onclick: async () => { try { await api('/api/staff', 'POST', { name: n.value, role: r.value, telegram_chat_id: c.value, pin: p.value }); toast('Added'); await teamView(); } catch (e) { toast(e.message, true); } } }, 'Add')))));
 }
 
 // ---------- routing ----------
 function nav() {
-  const links = [['#/board', 'ബോർഡ് / Board'], ['#/my', 'എന്റെ ജോലി / My work'], ['#/summary', 'സംഗ്രഹം / Summary']];
-  if (me.role === 'owner') links.push(['#/team', 'ടീം / Team']);
+  const links = [['#/board', 'Board'], ['#/my', 'My work'], ['#/summary', 'Summary']];
+  if (me.role === 'owner') links.push(['#/team', 'Team']);
   const cur = location.hash || '#/board';
-  $('#nav').replaceChildren(...links.map(([href, t]) => h('a', { href, class: cur.startsWith(href) ? 'on' : '' }, t)));
+  $('#nav').replaceChildren(...links.map(([href, t]) => h('a', { href, class: cur.startsWith(href) || (href === '#/board' && cur.startsWith('#/job/')) ? 'on' : '' }, t)));
   $('#whoami').textContent = `${me.name} · ${roleName(me.role)}`;
   $('#top').classList.remove('hidden');
 }
