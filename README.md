@@ -1,7 +1,7 @@
 # Alamco Studio Office Desk
 
 ഓഫീസ് (studio) ജോലികൾ ഏൽപ്പിക്കാനും പരിശോധിക്കാനും ഉള്ള ചെറിയ വെബ് ആപ്പ്.
-A small mobile-friendly web app for the studio's internal work assignment. Node.js + Express, plain HTML/JS, JSON-file storage (no database).
+A small mobile-friendly web app for the studio's internal work assignment. Node.js + Express, plain HTML/JS, JSON-file storage by default, optional PostgreSQL (`DATABASE_URL`).
 
 Jobs ("briefs") arrive from the existing `alamco-webhook` / alamcostudio.com via `POST /api/ingest`.
 
@@ -40,12 +40,21 @@ curl -X POST localhost:3100/api/ingest -H "Authorization: Bearer $DESK_INGEST_SE
 | `DRY_RUN` | optional | `1` = print notifications instead of sending (forced). |
 | `DESK_BASE_URL` | optional | Public URL; adds a job link to Telegram messages. |
 | `NOTIFY_OWNER_ON_INGEST` | optional | `1` = owner also gets a Telegram message when a new job is created (off by default: the webhook already alerts the owner). |
-| `DATA_DIR` | optional | Where `db.json` lives (default `./data`). On Render, point at a persistent disk. |
+| `DATABASE_URL` | optional | PostgreSQL connection string. When set, state is stored in Postgres (table `desk_state`, created automatically) and `DATA_DIR` is ignored. When unset, the JSON file is used. SSL is enabled automatically for non-localhost hosts. See *Storage*. |
+| `DATA_DIR` | optional | JSON backend only: where `db.json` lives (default `./data`). On Render, point at a persistent disk. |
 | `TRUST_PROXY` | on Render | `1` so rate-limiting/secure cookies see the real client behind the proxy. |
 | `NODE_ENV` | on Render | `production` → cookies get the `Secure` flag. |
 | `PORT` | optional | Default 3100 (Render sets it). |
 
 Secrets are never written to files or logs. Telegram errors are scrubbed of the token.
+
+## Storage
+
+* **Default (no `DATABASE_URL`)**: a JSON file `DATA_DIR/db.json` (atomic writes). Needs a persistent disk in production.
+* **PostgreSQL (`DATABASE_URL` set)**: one table `desk_state(key text primary key, value jsonb, updated_at timestamptz)` holding two documents, `staff` and `jobs` (the same data the JSON file holds). The table is created automatically on startup. The app keeps state in memory and writes it after every change; writes are queued and applied strictly one at a time (a burst of changes collapses into the newest snapshot), and pending writes are flushed on SIGTERM/SIGINT. Run a single instance. Connections to any host other than localhost use SSL (`rejectUnauthorized: false`); `sslmode=` in the URL is ignored.
+* **Recommended free setup for Render's free web service** (which has no persistent disk): keep the app on Render free and put the data in an external free Postgres, either **Neon** (neon.tech, free tier) or **Supabase** (supabase.com, free tier). Copy the connection string (Neon: *Connection string*; Supabase: *Project Settings → Database → Connection string*, the pooler/"Session" string works) into Render's env var `DATABASE_URL`. No disk needed. Note free Supabase projects pause after inactivity and the Render free service sleeps when idle; the first request after a pause is slow.
+* Switching backends does not migrate data automatically: a new empty database starts with the owner + placeholder staff. To move existing JSON data, insert the `staff` and `jobs` arrays from `db.json` into `desk_state` (keys `staff`, `jobs`) before the first start.
+* Tests: `npm run smoke` (JSON backend, end-to-end) and `npm run test:pg` (Postgres backend against the in-memory `pg-mem` emulator; no network).
 
 ## Roles & permissions
 
@@ -86,14 +95,14 @@ Actions: `assign_drafter{staff_id}`, `assign_surveyor{staff_id}`, `survey_verifi
 
 1. Push this repo to GitHub (private).
 2. Render → New **Web Service** from the repo. Runtime Node, build `npm install`, start `npm start`.
-3. Add a **Disk** (e.g. 1 GB) mounted at `/var/data` and set `DATA_DIR=/var/data` — without a disk the JSON file is lost on every deploy. (A disk requires a paid instance; the free tier is ephemeral.)
+3. Storage: either set `DATABASE_URL` to a free external Postgres (Neon/Supabase, see *Storage*; works on the free Render plan), or add a **Disk** (e.g. 1 GB, paid instance) mounted at `/var/data` and set `DATA_DIR=/var/data`. With neither, the JSON file is lost on every deploy.
 4. Environment: `NODE_ENV=production`, `TRUST_PROXY=1`, `DESK_OWNER_PIN`, `DESK_SESSION_SECRET` (random 32+ chars), `DESK_INGEST_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DESK_BASE_URL=https://<service>.onrender.com`. Leave `DRY_RUN` unset for live messages.
 5. Health check path: `/health`. Run a single instance only.
 6. Optional Render Cron Job (daily, 9:00 IST = `30 3 * * *` UTC): `curl -fsS -X POST -H "Authorization: Bearer $DESK_INGEST_SECRET" $DESK_BASE_URL/api/summary/send`.
 
 ## Limitations
 
-* JSON file store, single process: fine for a small studio, not for concurrent multi-instance scaling. Back up `db.json`.
+* In-memory state with JSON-file or Postgres persistence, single process only: fine for a small studio, not for multi-instance scaling. Back up `db.json` (or your Postgres).
 * Draft "files" are links (Drive/Dropbox etc.); there is no file upload.
 * "Send to client" only records the step. It does not message the client (the webhook/WhatsApp flow does that).
 * PINs are short; protected by scrypt hashing, per-user and per-IP login throttling (in memory) and HTTPS in production. Use `DESK_SESSION_SECRET` so sessions survive restarts. No password reset: the owner sets a new PIN in Team.

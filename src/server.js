@@ -10,8 +10,11 @@ const notify = require('./notify');
 const SESSION_TTL = 7 * 24 * 3600 * 1000;
 const COOKIE = 'desk_sid';
 
-function createApp() {
-  const store = new Store(process.env.DATA_DIR || path.join(__dirname, '..', 'data'));
+const dataDir = () => process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+
+// createApp({ store }) accepts a pre-opened store (needed for Postgres, which loads asynchronously).
+function createApp(opts = {}) {
+  const store = opts.store || new Store(dataDir());
   let sessionSecret = process.env.DESK_SESSION_SECRET;
   if (!sessionSecret) {
     sessionSecret = crypto.randomBytes(32).toString('hex');
@@ -200,6 +203,12 @@ function createApp() {
 
 if (require.main === module) {
   const port = process.env.PORT || 3100;
-  createApp().listen(port, () => console.log(`alamco-office-desk listening on :${port} | dryRun=${notify.isDryRun()}`));
+  (async () => {
+    const store = await Store.open({ dir: dataDir() });
+    console.log(`storage: ${store.pgPool ? 'postgres (DATABASE_URL)' : 'json file (' + store.file + ')'}`);
+    const server = createApp({ store }).listen(port, () => console.log(`alamco-office-desk listening on :${port} | dryRun=${notify.isDryRun()}`));
+    const stop = () => { server.close(); store.close().catch(() => {}).finally(() => process.exit(0)); };
+    process.on('SIGTERM', stop); process.on('SIGINT', stop);
+  })().catch((e) => { console.error('[fatal] startup failed:', e.message); process.exit(1); });
 }
 module.exports = { createApp };
